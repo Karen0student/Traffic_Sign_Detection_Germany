@@ -1,6 +1,7 @@
 import cv2
 import torch
 from ultralytics import YOLO
+import sys
 
 # Load YOLO model
 model = YOLO("datasets/europe/weights/best.pt")
@@ -11,7 +12,8 @@ model.to(device).eval()
 print(f"Using device: {device}")
 
 # Open video file or webcam (change 'video.mp4' to 0 for webcam)
-video_path = "Frankfurt_TS_Video.mp4"  # Change to 0 for webcam
+# video_path = "Frankfurt_TS_Video.mp4"  # Change to 0 for webcam
+video_path = sys.argv[1]
 cap = cv2.VideoCapture(video_path)
 
 if not cap.isOpened():
@@ -24,7 +26,7 @@ frame_height = int(cap.get(4))
 fps = int(cap.get(cv2.CAP_PROP_FPS))
 
 # Define output video writer
-output_path = "analyzed_output.mp4"
+output_path = "analyzed_output_1920.mp4"
 fourcc = cv2.VideoWriter_fourcc(*"mp4v")  # Use "XVID" for .avi format
 out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
@@ -36,8 +38,8 @@ def process_frame(frame):
     """Processes a single frame."""
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
-    # Run detection on the frame
-    results = model(frame_rgb, conf=conf, iou=iou, verbose=True, imgsz=1920, batch=2, workers=4) # batch -> limitations for GPU, workers -> limitations for CPU
+    # Run detection on the frame with custom conf and iou
+    results = model(frame_rgb, conf=conf, iou=iou, verbose=True, imgsz=1920, batch=2, workers=4)
 
     # Draw results on the frame
     for result in results:
