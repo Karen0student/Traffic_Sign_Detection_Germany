@@ -4,7 +4,7 @@ from ultralytics import YOLO
 import sys
 
 # Load YOLO model
-model = YOLO("datasets/europe/weights/best.pt")
+model = YOLO("416_100epoch_yolov8s_model/weights/best.pt")
 
 # Check if CUDA is available
 device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -32,14 +32,15 @@ out = cv2.VideoWriter(output_path, fourcc, fps, (frame_width, frame_height))
 
 # Set default confidence and IOU thresholds
 conf = 0.75  # Confidence threshold
-iou = 0.9   # IOU threshold
+iou = 0.9  # IOU threshold
+
 
 def process_frame(frame):
     """Processes a single frame."""
     frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
     # Run detection on the frame with custom conf and iou
-    results = model(frame_rgb, conf=conf, iou=iou, verbose=True, imgsz=1920, batch=2, workers=4)
+    results = model(frame_rgb, conf=conf, iou=iou, verbose=True, imgsz=1920)
 
     # Draw results on the frame
     for result in results:
@@ -51,10 +52,18 @@ def process_frame(frame):
 
             # Draw rectangle and label
             cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-            cv2.putText(frame, f"{label} ({conf_score:.2f})", (x1, y1 - 10),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-    
+            cv2.putText(
+                frame,
+                f"{label} ({conf_score:.2f})",
+                (x1, y1 - 10),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                (0, 255, 0),
+                2,
+            )
+
     return frame
+
 
 # Process frames and save the output
 while cap.isOpened():
@@ -67,8 +76,8 @@ while cap.isOpened():
 
     # Write the processed frame to output video
     out.write(processed_frame)
-    #cv2.imshow("Detections", processed_frame)
-    #cv2.waitKey(1)
+    # cv2.imshow("Detections", processed_frame)
+    # cv2.waitKey(1)
 
 # Release resources
 cap.release()
