@@ -2,7 +2,9 @@ import cv2
 import torch
 from ultralytics import YOLO
 import sys
+import time
 
+start_time = time.time()
 # Load YOLO model
 model = YOLO("416_100epoch_yolov8s_model/weights/best.pt")
 
@@ -83,3 +85,4 @@ while cap.isOpened():
 cap.release()
 out.release()
 cv2.destroyAllWindows()
+print(f"--- {time.time() - start_time} seconds ---")
