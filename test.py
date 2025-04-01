@@ -8,6 +8,7 @@ import time
 import queue
 import os
 from collections import OrderedDict
+import yaml
 
 # Настройки
 NUM_WORKERS = 8
@@ -15,6 +16,34 @@ FRAME_QUEUE_SIZE = 15
 BATCH_SIZE = 4
 MAX_RETRIES = 3
 MAX_OUTPUT_QUEUE_SIZE = 20  # Ограничение для избежания переполнения памяти
+
+
+def load_config(config_path="config.yaml"):
+    """Загрузка конфига с обработкой необязательных полей"""
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+
+    model_cfg = config.get("model", {})
+    video_cfg = config.get("video_params", {})
+
+    # Обработка device
+    device = model_cfg.get("device", "auto")
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+
+    # Сборка параметров модели
+    model_params = {
+        "model_path": model_cfg["path"],
+        "conf": model_cfg.get("conf", 0.25),  # Значение по умолчанию
+        "iou": model_cfg.get("iou", 0.45),
+        "device": device,
+        "imgsz": model_cfg.get("imgsz"),  # None если не указано
+        "augment": model_cfg.get("augment"),  # None если не указано
+    }
+    model_params = {k: v for k, v in model_params.items() if v is not None}
+
+    # Удаляем None значения
+    return {"model_params": model_params, "video_params": video_cfg}
 
 
 def writer_process(
@@ -73,27 +102,6 @@ def writer_process(
 
         out.release()
         print(f"Writer finished. Total written: {expected_idx}")
-
-
-def preprocess_frame(frame, method="none"):
-    """Баланс качества и скорости"""
-    if method == "none":
-        return frame
-
-    # Быстрая нормализация (5-7% slowdown)
-    if method == "fast_norm":
-        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        l = cv2.normalize(l, None, 0, 255, cv2.NORM_MINMAX)
-        return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
-
-    # Только для критичных случаев (15-20% slowdown)
-    if method == "full_enhance":
-        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
-        l, a, b = cv2.split(lab)
-        l = clahe.apply(l)
-        return cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
 
 
 def process_batch(batch, model, model_params):
@@ -212,20 +220,14 @@ def worker(frame_queue, output_queue, worker_id, model_params, stop_event):
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: python script.py <video_path>")
+        print("Usage: python script.py <config_path>")
         return
+    config_path = sys.argv[1]
+    _params = load_config(config_path)
+    model_params = _params["model_params"]
+    video_params = _params["video_params"]
 
-    model_params = {
-        "model_path": "416_100epoch_yolov8s_model/weights/best.pt",
-        "device": "cuda" if torch.cuda.is_available() else "cpu",
-        "conf": 0.5,
-        "iou": 0.45,
-        "imgsz": 1280,
-        "augment": False,
-    }
-
-    video_path = sys.argv[1]
-    cap = cv2.VideoCapture(video_path)
+    cap = cv2.VideoCapture(video_params["video_input"])
     if not cap.isOpened():
         print("Error: Could not open video.")
         return
@@ -252,7 +254,7 @@ def main():
         target=writer_process,
         args=(
             output_queue,
-            "output.mp4",
+            video_params["video_output"],
             frame_size,
             fps,
             total_frames,
