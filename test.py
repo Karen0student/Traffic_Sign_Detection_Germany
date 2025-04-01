@@ -108,7 +108,7 @@ def process_batch(batch, model, model_params):
             imgsz=model_params["imgsz"],
             conf=model_params["conf"],
             iou=model_params["iou"],
-            augment=False,
+            augment=model_params.get("augment", False),
             verbose=False,
         )
 
