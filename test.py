@@ -97,64 +97,58 @@ def preprocess_frame(frame, method="none"):
 
 
 def process_batch(batch, model, model_params):
-    """Сверхоптимизированная обработка батча"""
-    # 1. Быстрая сортировка по индексам
+    """Обработка батча с раздельной отрисовкой каждого bbox"""
+    # 1. Сортировка кадров по индексам
     indices, frames = zip(*sorted(batch, key=lambda x: x[0]))
 
-    # 2. Векторизованная обработка кадров
+    # 2. Векторизованная детекция объектов
     with torch.no_grad():
-        # Прямая передача BGR кадров (без конвертации)
         results = model(
             frames,
             imgsz=model_params["imgsz"],
             conf=model_params["conf"],
             iou=model_params["iou"],
-            augment=model_params.get("augment", False),  # Отключаем для скорости
+            augment=False,
             verbose=False,
         )
 
-    # 3. Подготовка буфера результатов
-    processed = [None] * len(frames)
-
-    # 4. Векторизованная постобработка
-    for i, (idx, frame, result) in enumerate(zip(indices, frames, results)):
-        if result.boxes is None:
-            processed[i] = (idx, frame)
-            continue
-
-        # Быстрое извлечение тензоров за один вызов
-        boxes = result.boxes.xyxy.round().int().cpu().numpy()
-        confs = result.boxes.conf.cpu().numpy()
-        class_ids = result.boxes.cls.cpu().numpy().astype(int)
-
-        # Создаем копию кадра только если есть детекции
+    processed = []
+    for idx, frame, result in zip(indices, frames, results):
+        # Создаем копию кадра для отрисовки
         output_frame = frame.copy()
 
-        # Векторизованная отрисовка (для OpenCV 4.5+)
-        if len(boxes) > 0:
-            # Рисуем все прямоугольники за один проход
-            cv2.rectangle(
-                output_frame,
-                (boxes[:, 0].min(), boxes[:, 1].min()),
-                (boxes[:, 2].max(), boxes[:, 3].max()),
-                (0, 255, 0),
-                2,
-            )
+        if result.boxes is not None:
+            # Извлекаем данные детекции
+            boxes = result.boxes.xyxy.cpu().numpy()
+            confs = result.boxes.conf.cpu().numpy()
+            class_ids = result.boxes.cls.cpu().numpy().astype(int)
 
-            # Быстрая отрисовка текста
-            for box, conf, cls_id in zip(boxes, confs, class_ids):
+            # 3. Индивидуальная отрисовка КАЖДОГО bbox
+            for i, (box, conf, cls_id) in enumerate(zip(boxes, confs, class_ids)):
+                x1, y1, x2, y2 = map(int, box)
+
+                # Генерация уникального цвета для каждого объекта
+                color = (0, 255, 0)
+
+                # Отрисовка прямоугольника
+                cv2.rectangle(output_frame, (x1, y1), (x2, y2), color, thickness=2)
+
+                # Подготовка текстовой метки
                 label = f"{model.names[cls_id]} {conf:.2f}"
+
+                # Текст с контрастным цветом
                 cv2.putText(
                     output_frame,
                     label,
-                    (box[0], box[1] - 10),
+                    (x1, y1 - 7),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.6,
-                    (0, 255, 0),
+                    color,
                     2,
+                    cv2.LINE_AA,
                 )
 
-        processed[i] = (idx, output_frame)
+        processed.append((idx, output_frame))
 
     return processed
 
