@@ -14,8 +14,9 @@ from ultralytics import YOLO
 
 
 # Настройка системы логирования
-def setup_logging(log_path="app.log"):
-    """Настройка корневого логгера и обработчиков"""
+def setup_logging():
+    """Настройка системы логирования для главного процесса и дочерних"""
+    # Создаем очередь для логов
     log_queue = mp.Queue()
 
     # Форматтер для всех обработчиков
@@ -23,13 +24,12 @@ def setup_logging(log_path="app.log"):
         "%(asctime)s - %(processName)s - %(levelname)s - %(message)s"
     )
 
-    # Обработчик для консоли
+    # Обработчики (консоль и файл)
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
     console_handler.setLevel(logging.INFO)
 
-    # Обработчик для файла
-    file_handler = logging.FileHandler(log_path)
+    file_handler = logging.FileHandler("app.log")
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
 
@@ -38,6 +38,12 @@ def setup_logging(log_path="app.log"):
         log_queue, console_handler, file_handler, respect_handler_level=True
     )
     listener.start()
+
+    # Настройка корневого логгера для главного процесса
+    main_logger = logging.getLogger()
+    main_logger.setLevel(logging.DEBUG)
+    main_logger.addHandler(console_handler)
+    main_logger.addHandler(file_handler)
 
     return log_queue, listener
 
@@ -59,14 +65,6 @@ def setup_worker_logger(log_queue):
     return logger
 
 
-# Настройки
-NUM_WORKERS = 8
-FRAME_QUEUE_SIZE = 15
-BATCH_SIZE = 4
-MAX_RETRIES = 3
-MAX_OUTPUT_QUEUE_SIZE = 20
-
-
 def load_config(config_path="config.yaml"):
     """Загрузка конфига с обработкой необязательных полей"""
     logger = logging.getLogger()
@@ -76,6 +74,7 @@ def load_config(config_path="config.yaml"):
 
         model_cfg = config.get("model", {})
         video_cfg = config.get("video_params", {})
+        app_params = config.get("app_params", {})
 
         device = model_cfg.get("device", "auto")
         if device == "auto":
@@ -93,7 +92,11 @@ def load_config(config_path="config.yaml"):
         model_params = {k: v for k, v in model_params.items() if v is not None}
 
         logger.debug("Config loaded successfully")
-        return {"model_params": model_params, "video_params": video_cfg}
+        return {
+            "model_params": model_params,
+            "video_params": video_cfg,
+            "app_params": app_params,
+        }
 
     except Exception as e:
         logger.error(f"Error loading config: {str(e)}")
@@ -203,7 +206,17 @@ def process_batch(batch, model, model_params):
         return [(idx, frame.copy()) for idx, frame in batch]
 
 
-def worker(frame_queue, output_queue, worker_id, model_params, stop_event, log_queue):
+def worker(
+    frame_queue,
+    output_queue,
+    worker_id,
+    model_params,
+    stop_event,
+    log_queue,
+    max_retries,
+    batch_size,
+    max_output_queue_size,
+):
     """Worker-процесс с логированием"""
     setup_worker_logger(log_queue)
     logger = logging.getLogger()
@@ -215,7 +228,7 @@ def worker(frame_queue, output_queue, worker_id, model_params, stop_event, log_q
 
     while not stop_event.is_set():
         try:
-            while len(batch) < BATCH_SIZE:
+            while len(batch) < batch_size:
                 frame_data = frame_queue.get(timeout=1)
                 if frame_data is None:
                     if batch:
@@ -231,18 +244,18 @@ def worker(frame_queue, output_queue, worker_id, model_params, stop_event, log_q
                     return
                 batch.append(frame_data)
 
-            for attempt in range(MAX_RETRIES):
+            for attempt in range(max_retries):
                 try:
                     processed = process_batch(batch, model, model_params)
-                    while output_queue.qsize() > MAX_OUTPUT_QUEUE_SIZE:
+                    while output_queue.qsize() > max_output_queue_size:
                         time.sleep(0.1)
                     output_queue.put(processed)
                     batch = []
                     break
                 except Exception as e:
-                    if attempt == MAX_RETRIES - 1:
+                    if attempt == max_retries - 1:
                         logger.error(
-                            f"Batch failed after {MAX_RETRIES} attempts: {str(e)}"
+                            f"Batch failed after {max_retries} attempts: {str(e)}"
                         )
                         output_queue.put([(idx, frame.copy()) for idx, frame in batch])
                         batch = []
@@ -265,22 +278,29 @@ def worker(frame_queue, output_queue, worker_id, model_params, stop_event, log_q
 
 def main():
     # Инициализация системы логирования
-    log_queue, listener = setup_logging("app.log")
-    logger = logging.getLogger()
-    logger.info("Application started")
-
-    if len(sys.argv) < 2:
-        logger.error("Usage: python script.py <config_path>")
-        return
+    log_queue, listener = setup_logging()
+    logger = logging.getLogger(__name__)  # Используем именованный логгер
 
     try:
+        logger.info("=" * 50)
+        logger.info("Application started")
+        logger.info("=" * 50)
+
+        if len(sys.argv) < 2:
+            logger.error("Usage: python script.py <config_path>")
+            return
+
         config_path = sys.argv[1]
+        logger.info(f"Loading config from {config_path}")
+
         _params = load_config(config_path)
         model_params = _params["model_params"]
         video_params = _params["video_params"]
+        app_params = _params["app_params"]
 
         logger.info(f"Model params: {model_params}")
         logger.info(f"Video params: {video_params}")
+        logger.info(f"App params: {app_params}")
 
         cap = cv2.VideoCapture(video_params["video_input"])
         if not cap.isOpened():
@@ -295,12 +315,12 @@ def main():
             f"Video info: {frame_size} @ {fps}fps, total frames: {total_frames}"
         )
 
-        frame_queue = Queue(maxsize=FRAME_QUEUE_SIZE)
+        frame_queue = Queue(maxsize=app_params["frame_queue_size"])
         output_queue = Queue()
         stop_event = Event()
 
         workers = []
-        for i in range(NUM_WORKERS):
+        for i in range(app_params["num_workers"]):
             p = Process(
                 target=worker,
                 args=(
@@ -310,6 +330,9 @@ def main():
                     model_params,
                     stop_event,
                     log_queue,
+                    app_params["max_retries"],
+                    app_params["batch_size"],
+                    app_params["max_output_queue_size"],
                 ),
                 name=f"Worker-{i}",
             )
@@ -344,7 +367,7 @@ def main():
                     logger.info("Reached end of video")
                     break
 
-                while frame_queue.qsize() > FRAME_QUEUE_SIZE * 0.8:
+                while frame_queue.qsize() > app_params["frame_queue_size"] * 0.8:
                     time.sleep(0.1)
 
                 frame_queue.put((frame_idx, frame))
@@ -359,10 +382,10 @@ def main():
                     last_log_time = time.time()
 
             logger.info("All frames sent, waiting for workers...")
-            for _ in range(NUM_WORKERS):
+            for _ in range(app_params["num_workers"]):
                 frame_queue.put(None)
 
-            active_workers = NUM_WORKERS
+            active_workers = app_params["num_workers"]
             while active_workers > 0:
                 try:
                     msg = output_queue.get(timeout=5)
