@@ -11,6 +11,7 @@ import yaml
 import cv2
 import torch
 from ultralytics import YOLO
+from datetime import datetime
 
 
 # Настройка системы логирования
@@ -29,7 +30,16 @@ def setup_logging():
     console_handler.setFormatter(formatter)
     console_handler.setLevel(logging.INFO)
 
-    file_handler = logging.FileHandler("app.log")
+    try:
+        os.mkdir("logs")
+        print(f"Директория 'logs' успешно создана")
+    except FileExistsError:
+        print(f"Директория 'logs' уже существует")
+    except Exception as e:
+        print(f"Ошибка при создании директории: {e}")
+        exit(1)
+    log_filename = f"logs/log_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.log"
+    file_handler = logging.FileHandler(log_filename)
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
 
