@@ -1,0 +1,17 @@
+model:
+  path: "416_100epoch_yolov8s_model/weights/best.pt"
+  conf: 0.8
+  iou: 0.9
+  # Необязательные параметры (можно закомментировать)
+  imgsz: 1280
+  augment: False
+  device: "auto"  # или "cuda"/"cpu"
+video_params:
+  video_input: "../robotics/docker/Frankfurt_TS_Video.mp4"
+  video_output: "output.mp4"
+app_params:
+  num_workers: 6
+  frame_queue_size: 15
+  batch_size: 2
+  max_retries: 3
+  max_output_queue_size: 20

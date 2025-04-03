@@ -4,16 +4,15 @@ Traffic Sign Detection, country Germany
 
 dataset link: https://www.kaggle.com/datasets/pkdarabi/cardetection/data
 
-# **Пример config.yaml**
+# **example config.yaml**
 ```yaml
 model:
   path: "path/to/model.pt"
   conf: 0.5
   iou: 0.45
-  # Необязательные параметры (можно закомментировать)
   imgsz: 1280
   augment: False
-  device: "auto"  # или "cuda"/"cpu"
+  device: "auto"  # or "cuda"/"cpu"
 video_params:
   video_input: "video.mp4"
   video_output: "output.mp4"
@@ -24,3 +23,8 @@ app_params:
   max_retries: 3
   max_output_queue_size: 20
 ```
+
+
+to run in docker, simply execute bash docker/docker_container_run.sh, but before that, you should add video path to connect that volume into container.
+
+!!! config.yaml is different for docker
