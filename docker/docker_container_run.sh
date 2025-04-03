@@ -1,1 +1,1 @@
-touch output.mp4 &&  docker run --rm --gpus all -v "<your_video_path>:/opt/video.mp4" -v "$(pwd)/config.yaml:/opt/config.yaml" -v "$(pwd)/output.mp4:/opt/output.mp4" -v "$(pwd)/logs:/opt/logs" robotics_containerized:latest
+docker pull 111voyager/traffic_sign_detection:latest && touch output.mp4 &&  docker run --rm --gpus all -v "<your_video_path>:/opt/video.mp4" -v "$(pwd)/config.yaml:/opt/config.yaml" -v "$(pwd)/output.mp4:/opt/output.mp4" -v "$(pwd)/logs:/opt/logs" 111voyager/traffic_sign_detection:latest
